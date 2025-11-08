@@ -64,35 +64,41 @@ app.post('/webhook/ai-events', async (req, res) => {
   console.log('AI Event:', JSON.stringify(event, null, 2));
 
   try {
-    // Handle conversation completion and extract data
+    // Handle function calls from Charlotte (when she collects service info)
+    if (event.type === 'function.called' && event.function_name === 'save_service_request') {
+      console.log('Charlotte called save_service_request with:', event.function_arguments);
+
+      const args = event.function_arguments;
+
+      // Save to Charlotte's service_requests table
+      const savedRequest = await saveServiceRequest({
+        phone_number: event.from_number || null,
+        customer_name: args.customer_name || null,
+        email: args.email || null,
+        address: args.address || null,
+        home_size: args.home_size || null,
+        issue_description: args.issue_description || null,
+        urgency_level: args.urgency_level || 'routine',
+        last_service_date: args.last_service_date || null,
+        preferred_time: args.preferred_time || null,
+        additional_notes: args.additional_notes || null,
+        contact_method: 'voice',
+        status: 'pending'
+      });
+
+      console.log('✅ Saved service request to Supabase!', savedRequest);
+    }
+
+    // Also handle conversation completion for logging
     if (event.type === 'conversation.completed') {
-      const callId = event.call_id;
-      const conversationData = event.conversation_data;
-
-      // Extract user information from conversation
-      const callerInfo = extractCallerInfo(conversationData);
-
-      if (callerInfo) {
-        // Save to Charlotte's service_requests table
-        await saveServiceRequest({
-          phone_number: callerInfo.phone_number,
-          customer_name: callerInfo.caller_name,
-          email: callerInfo.caller_email,
-          address: callerInfo.address || null,
-          issue_description: callerInfo.call_reason || callerInfo.reason,
-          additional_notes: callerInfo.additional_notes,
-          contact_method: 'voice',
-          call_start: callerInfo.call_start,
-          call_end: callerInfo.call_end,
-          status: 'pending'
-        });
-        console.log('Saved service request to Supabase:', callerInfo);
-      }
+      console.log('Conversation completed. Call ID:', event.call_id);
+      console.log('Full event data:', JSON.stringify(event, null, 2));
     }
 
     res.status(200).send('OK');
   } catch (error) {
     console.error('Error handling AI event:', error);
+    console.error('Event was:', JSON.stringify(event, null, 2));
     res.status(500).send('Internal Server Error');
   }
 });
@@ -158,23 +164,16 @@ async function handleCallInitiated(payload) {
 async function handleCallAnswered(payload) {
   const { call_control_id } = payload;
 
-  try {
-    // Transfer to AI Assistant
-    // Note: You'll need to configure your AI Assistant in Telnyx Mission Control
-    // and use the assistant ID from your environment variables
+  console.log('Call answered, AI Assistant should take over:', call_control_id);
 
-    // For now, we'll use a simple speak command as a fallback
-    // In production, you would integrate with Telnyx AI Assistant API
-    await telnyx.calls.speak(call_control_id, {
-      payload: "Hello! Thank you for calling. I'm your AI assistant. May I have your name please?",
-      voice: "en-US-Neural2-A",
-      language: "en-US"
-    });
+  // If Charlotte AI Assistant is configured on your Telnyx number,
+  // she will automatically start the conversation.
+  // No need to send speak commands - that interferes with the AI.
 
-    console.log('AI greeting sent to call:', call_control_id);
-  } catch (error) {
-    console.error('Error starting AI conversation:', error);
-  }
+  // The AI Assistant will handle:
+  // 1. Greeting the caller
+  // 2. Collecting information
+  // 3. Sending events to /webhook/ai-events when done
 }
 
 // Handle call hangup
