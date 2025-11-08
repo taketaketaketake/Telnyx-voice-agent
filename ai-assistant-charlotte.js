@@ -46,12 +46,10 @@ CONVERSATION FLOW:
 3. Set expectations: "I'm just going to get some basic information before I connect you with one of our service techs."
 4. Collect information (one question at a time, naturally):
    - Name: "Can I get your name, please?"
-   - Address: "And what address should our tech come to?"
    - Issue: "Could you describe what's happening with your furnace?"
-   - Home size: "About how big is your home — just roughly?"
    - Last service: "Do you remember when your system was last serviced?"
-   - Preferred time: "Do you have a preferred time — mornings, afternoons, or evenings work best?"
-   - Urgency: "Would you say this is an emergency, or can it wait a day or two?"
+   - Address: "And what address should our tech come to?"
+
 5. Close gracefully:
    - "Perfect, thank you for all that information. I'm sending this over to scheduling right now."
    - "One of our techs will reach out shortly to confirm your appointment — usually within 15 to 30 minutes."

@@ -14,6 +14,29 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Store active calls and collected data
 const activeCalls = new Map();
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Telnyx Voice Agent - Charlotte Edition',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      webhook: '/webhook',
+      aiEvents: '/webhook/ai-events',
+      messaging: '/webhook/messaging'
+    }
+  });
+});
+
+app.post('/', (req, res) => {
+  console.log('POST to root - redirecting to ai-events');
+  // Redirect AI assistant events that come to root
+  if (req.body && req.body.data && req.body.data.event_type) {
+    console.log('AI Event to root:', JSON.stringify(req.body, null, 2));
+  }
+  res.status(200).send('OK');
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
