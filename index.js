@@ -89,10 +89,38 @@ app.post('/webhook/ai-events', async (req, res) => {
       console.log('✅ Saved service request to Supabase!', savedRequest);
     }
 
-    // Also handle conversation completion for logging
+    // FALLBACK: Extract from conversation transcript if functions aren't configured
     if (event.type === 'conversation.completed') {
       console.log('Conversation completed. Call ID:', event.call_id);
       console.log('Full event data:', JSON.stringify(event, null, 2));
+
+      // Check if we have transcript data
+      if (event.transcript || event.messages) {
+        console.log('\n📝 Extracting data from conversation transcript...');
+
+        const transcript = event.transcript || (event.messages ? event.messages.map(m => m.content).join('\n') : '');
+        const callerPhone = event.from_number || event.from || null;
+
+        // Simple extraction - you can make this smarter with regex or AI
+        const extractedData = {
+          phone_number: callerPhone,
+          issue_description: transcript.substring(0, 500), // First 500 chars as issue
+          additional_notes: `Full transcript: ${transcript}`,
+          contact_method: 'voice',
+          status: 'pending',
+          urgency_level: 'routine'
+        };
+
+        // Detect urgency from transcript
+        if (transcript.toLowerCase().includes('emergency') || transcript.toLowerCase().includes('no heat')) {
+          extractedData.urgency_level = 'emergency';
+        } else if (transcript.toLowerCase().includes('urgent')) {
+          extractedData.urgency_level = 'urgent';
+        }
+
+        await saveServiceRequest(extractedData);
+        console.log('✅ Saved service request from transcript!');
+      }
     }
 
     res.status(200).send('OK');
