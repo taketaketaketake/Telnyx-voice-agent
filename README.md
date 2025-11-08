@@ -283,16 +283,94 @@ Update your Telnyx phone number configuration with your production webhook URL.
 
 MIT
 
+## Charlotte AI Assistant - Enhanced Version
+
+This project now includes **Charlotte**, a specialized AI assistant persona for Fix My Furnace in Michigan. Charlotte features:
+
+- ✨ **Natural, warm personality** - Detroit-local friendly with professional confidence
+- 📱 **SMS/MMS support** - Customers can text or send pictures of furnace issues
+- 🎯 **Smart intent detection** - Recognizes emergencies, scheduling requests, pricing questions
+- 🏠 **Furnace-specific data** - Collects home size, urgency level, service history
+- 🗣️ **Adaptive responses** - Changes tone based on caller type (frustrated, calm, elderly, hurried)
+- 📊 **Enhanced analytics** - Emergency tracking, appointment scheduling, customer history
+
+### Quick Start with Charlotte
+
+1. **Run the enhanced database schema:**
+   ```bash
+   # Execute supabase-schema-charlotte.sql in your Supabase SQL Editor
+   ```
+
+2. **Create Charlotte assistant in Telnyx:**
+   - Use configuration from `ai-assistant-charlotte.js`
+   - See detailed instructions in `CHARLOTTE_SETUP.md`
+
+3. **Enable SMS/MMS on your Telnyx number:**
+   - Set webhook URL to `https://your-domain.com/webhook/messaging`
+   - Enable SMS and MMS in number settings
+
+4. **Update environment variables:**
+   ```env
+   CHARLOTTE_AI_ASSISTANT_ID=your_charlotte_assistant_id
+   BUSINESS_NAME="Fix My Furnace"
+   BUSINESS_LOCATION="Michigan"
+   ```
+
+5. **Deploy and test:**
+   ```bash
+   npm start
+   # Call or text +1-833-494-8669 to interact with Charlotte
+   ```
+
+📖 **Full setup guide:** See [CHARLOTTE_SETUP.md](./CHARLOTTE_SETUP.md) for complete instructions.
+
+---
+
+## API Endpoints
+
+- `GET /health` - Health check endpoint
+- `POST /webhook` - Main webhook for Telnyx call events
+- `POST /webhook/ai-events` - Webhook for AI assistant events
+- `POST /webhook/messaging` - **NEW:** Webhook for SMS/MMS messages
+
+---
+
+## Database Schema
+
+### Original Table: `caller_info`
+Basic caller information (maintained for backward compatibility)
+
+### Charlotte Tables
+
+**`service_requests`** - Enhanced furnace service tracking:
+- Customer information (name, phone, email)
+- Service address and home size
+- Issue description and urgency level
+- Last service date and preferred appointment time
+- Contact method (voice/SMS/MMS) and status tracking
+
+**`message_history`** - SMS/MMS conversation logs:
+- Inbound/outbound messages
+- Media attachments (MMS)
+- Linked to service requests
+- Telnyx message ID and delivery status
+
+---
+
 ## Next Steps
 
-Once your basic agent is working, you can:
-
+### With Basic Setup:
 1. **Add custom business logic** - Route calls based on caller info
 2. **Integrate with CRM** - Connect to Salesforce, HubSpot, etc.
-3. **Add SMS follow-up** - Send confirmation texts using Telnyx SMS API
-4. **Build a dashboard** - Create a web interface to view caller data
-5. **Add analytics** - Track call metrics and conversation quality
-6. **Multi-language support** - Handle calls in different languages
-7. **Advanced AI features** - Sentiment analysis, intent detection, etc.
+3. **Build a dashboard** - Create a web interface to view caller data
+4. **Add analytics** - Track call metrics and conversation quality
+
+### With Charlotte:
+1. **Appointment scheduling** - Auto-schedule with techs
+2. **SMS confirmations** - Send appointment reminders
+3. **Call transfer** - Route to live tech after data collection
+4. **Customer portal** - Let customers check appointment status
+5. **Sentiment analysis** - Detect frustrated customers and escalate
+6. **Multi-language** - Add Spanish support for broader reach
 
 Happy building!

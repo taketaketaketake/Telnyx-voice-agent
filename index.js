@@ -85,6 +85,40 @@ app.post('/webhook/ai-events', async (req, res) => {
   }
 });
 
+// Handle incoming SMS/MMS messages
+app.post('/webhook/messaging', async (req, res) => {
+  const event = req.body;
+
+  console.log('SMS/MMS Event:', JSON.stringify(event, null, 2));
+
+  try {
+    const eventType = event.data?.event_type;
+    const payload = event.data?.payload;
+
+    switch (eventType) {
+      case 'message.received':
+        await handleIncomingMessage(payload);
+        break;
+
+      case 'message.sent':
+        console.log('Message sent successfully:', payload.id);
+        break;
+
+      case 'message.failed':
+        console.error('Message failed:', payload);
+        break;
+
+      default:
+        console.log('Unhandled messaging event:', eventType);
+    }
+
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Error handling messaging webhook:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
 // Handle incoming call
 async function handleCallInitiated(payload) {
   const { call_control_id, from, to } = payload;
@@ -175,6 +209,76 @@ function extractCallerInfo(conversationData) {
   } catch (error) {
     console.error('Error extracting caller info:', error);
     return null;
+  }
+}
+
+// Handle incoming SMS/MMS messages with Charlotte's personality
+async function handleIncomingMessage(payload) {
+  const { from, to, text, media } = payload;
+
+  console.log(`Received message from ${from}: ${text}`);
+
+  // Check if there are media attachments (MMS)
+  if (media && media.length > 0) {
+    console.log(`Message includes ${media.length} media attachment(s):`, media);
+  }
+
+  try {
+    // Charlotte's SMS response - warm and helpful
+    let responseText = '';
+
+    // Detect intent and respond accordingly
+    const lowerText = (text || '').toLowerCase();
+
+    if (lowerText.includes('emergency') || lowerText.includes('urgent') || lowerText.includes('no heat')) {
+      // Emergency response
+      responseText = "Hi! This is Charlotte from Fix My Furnace. I see you need urgent help. For fastest service, please call us at " + process.env.TELNYX_PHONE_NUMBER + " and I'll get you taken care of right away.";
+    } else if (lowerText.includes('schedule') || lowerText.includes('appointment') || lowerText.includes('book')) {
+      // Scheduling request
+      responseText = "Hi! I'm Charlotte with Fix My Furnace. I'd love to help schedule your service. Could you give me a call at " + process.env.TELNYX_PHONE_NUMBER + "? It'll just take a minute to get your appointment set up.";
+    } else if (lowerText.includes('price') || lowerText.includes('cost') || lowerText.includes('quote')) {
+      // Pricing inquiry
+      responseText = "Hi! Thanks for reaching out to Fix My Furnace. Pricing depends on your specific situation. Give me a call at " + process.env.TELNYX_PHONE_NUMBER + " and I can get you connected with one of our techs for an accurate estimate.";
+    } else if (lowerText.includes('hours') || lowerText.includes('open')) {
+      // Business hours
+      responseText = "Hi! Fix My Furnace is here to help. For service questions and scheduling, call me at " + process.env.TELNYX_PHONE_NUMBER + ". We offer emergency service 24/7!";
+    } else {
+      // General response
+      responseText = "Hi! This is Charlotte from Fix My Furnace. Thanks for your message! For the fastest help, please call me at " + process.env.TELNYX_PHONE_NUMBER + " and I'll personally take care of you.";
+    }
+
+    // Send SMS response using Telnyx
+    await telnyx.messages.create({
+      from: to, // Our Telnyx number
+      to: from, // Customer's number
+      text: responseText,
+      webhook_url: process.env.WEBHOOK_URL + '/webhook/messaging',
+      use_profile_webhooks: false
+    });
+
+    console.log('Sent SMS response to:', from);
+
+    // Optionally save the conversation to database
+    await saveCallerInfo({
+      phone_number: from,
+      reason: text,
+      notes: `SMS conversation. Media attachments: ${media ? media.length : 0}`,
+      call_timestamp: new Date()
+    });
+
+  } catch (error) {
+    console.error('Error handling incoming message:', error);
+
+    // Send fallback response
+    try {
+      await telnyx.messages.create({
+        from: to,
+        to: from,
+        text: "Hi! This is Charlotte from Fix My Furnace. I'm having trouble processing your message right now. Please call us at " + process.env.TELNYX_PHONE_NUMBER + " and I'll help you directly. Thanks!"
+      });
+    } catch (fallbackError) {
+      console.error('Error sending fallback message:', fallbackError);
+    }
   }
 }
 

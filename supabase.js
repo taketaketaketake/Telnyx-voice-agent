@@ -107,9 +107,180 @@ async function getCallerInfoByPhone(phoneNumber) {
   }
 }
 
+// ============================================================================
+// Charlotte-specific service request functions
+// ============================================================================
+
+/**
+ * Save furnace service request (Charlotte)
+ * @param {Object} serviceRequest - Service request information
+ * @returns {Promise<Object>} Result of the database operation
+ */
+async function saveServiceRequest(serviceRequest) {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized. Please configure SUPABASE_URL and SUPABASE_ANON_KEY');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('service_requests')
+      .insert([
+        {
+          phone_number: serviceRequest.phone_number,
+          customer_name: serviceRequest.customer_name || null,
+          email: serviceRequest.email || null,
+          address: serviceRequest.address || null,
+          home_size: serviceRequest.home_size || null,
+          issue_description: serviceRequest.issue_description || null,
+          urgency_level: serviceRequest.urgency_level || 'routine',
+          last_service_date: serviceRequest.last_service_date || null,
+          preferred_time: serviceRequest.preferred_time || null,
+          additional_notes: serviceRequest.additional_notes || null,
+          contact_method: serviceRequest.contact_method || 'voice',
+          call_start: serviceRequest.call_start || null,
+          call_end: serviceRequest.call_end || null,
+          status: serviceRequest.status || 'pending',
+          created_at: new Date().toISOString()
+        }
+      ])
+      .select();
+
+    if (error) {
+      console.error('Supabase error saving service request:', error);
+      throw error;
+    }
+
+    console.log('Successfully saved service request to Supabase:', data);
+    return data;
+  } catch (error) {
+    console.error('Error saving service request:', error);
+    throw error;
+  }
+}
+
+/**
+ * Save SMS/MMS message to history
+ * @param {Object} messageInfo - Message information
+ * @returns {Promise<Object>} Result of the database operation
+ */
+async function saveMessage(messageInfo) {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('message_history')
+      .insert([
+        {
+          phone_number: messageInfo.phone_number,
+          direction: messageInfo.direction, // 'inbound' or 'outbound'
+          message_text: messageInfo.message_text || null,
+          media_urls: messageInfo.media_urls || null,
+          service_request_id: messageInfo.service_request_id || null,
+          telnyx_message_id: messageInfo.telnyx_message_id || null,
+          status: messageInfo.status || 'sent',
+          created_at: new Date().toISOString()
+        }
+      ])
+      .select();
+
+    if (error) {
+      console.error('Supabase error saving message:', error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error saving message:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all pending service requests
+ * @returns {Promise<Array>} Array of pending service requests
+ */
+async function getPendingRequests() {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('pending_requests')
+      .select('*');
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error fetching pending requests:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get customer history by phone number
+ * @param {string} phoneNumber - Phone number to search for
+ * @returns {Promise<Array>} Array of service request records
+ */
+async function getCustomerHistory(phoneNumber) {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .rpc('get_customer_history', { caller_phone: phoneNumber });
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error fetching customer history:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if customer is a repeat customer
+ * @param {string} phoneNumber - Phone number to check
+ * @returns {Promise<boolean>} True if repeat customer
+ */
+async function isRepeatCustomer(phoneNumber) {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .rpc('is_repeat_customer', { caller_phone: phoneNumber });
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error checking repeat customer:', error);
+    return false;
+  }
+}
+
 module.exports = {
   supabase,
   saveCallerInfo,
   getAllCallerInfo,
-  getCallerInfoByPhone
+  getCallerInfoByPhone,
+  // Charlotte-specific functions
+  saveServiceRequest,
+  saveMessage,
+  getPendingRequests,
+  getCustomerHistory,
+  isRepeatCustomer
 };
