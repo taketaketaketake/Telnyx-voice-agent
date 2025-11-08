@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const telnyx = require('telnyx')(process.env.TELNYX_API_KEY);
-const { saveCallerInfo } = require('./supabase');
+const { saveServiceRequest, saveMessage } = require('./supabase');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -73,8 +73,20 @@ app.post('/webhook/ai-events', async (req, res) => {
       const callerInfo = extractCallerInfo(conversationData);
 
       if (callerInfo) {
-        await saveCallerInfo(callerInfo);
-        console.log('Saved caller info to Supabase:', callerInfo);
+        // Save to Charlotte's service_requests table
+        await saveServiceRequest({
+          phone_number: callerInfo.phone_number,
+          customer_name: callerInfo.caller_name,
+          email: callerInfo.caller_email,
+          address: callerInfo.address || null,
+          issue_description: callerInfo.call_reason || callerInfo.reason,
+          additional_notes: callerInfo.additional_notes,
+          contact_method: 'voice',
+          call_start: callerInfo.call_start,
+          call_end: callerInfo.call_end,
+          status: 'pending'
+        });
+        console.log('Saved service request to Supabase:', callerInfo);
       }
     }
 
@@ -176,17 +188,23 @@ async function handleCallHangup(payload) {
 
   if (callData && Object.keys(callData.data).length > 0) {
     try {
-      // Save collected data to Supabase
-      await saveCallerInfo({
+      // Save collected data to Charlotte's service_requests table
+      await saveServiceRequest({
         phone_number: callData.from,
+        customer_name: callData.data.name || null,
+        email: callData.data.email || null,
+        address: callData.data.address || null,
+        issue_description: callData.data.reason || callData.data.issue_description || null,
+        additional_notes: callData.data.notes || null,
+        contact_method: 'voice',
         call_start: callData.startTime,
         call_end: new Date(),
-        ...callData.data
+        status: 'pending'
       });
 
-      console.log('Saved call data to Supabase');
+      console.log('Saved service request to Supabase');
     } catch (error) {
-      console.error('Error saving call data:', error);
+      console.error('Error saving service request:', error);
     }
   }
 
@@ -258,13 +276,42 @@ async function handleIncomingMessage(payload) {
 
     console.log('Sent SMS response to:', from);
 
-    // Optionally save the conversation to database
-    await saveCallerInfo({
+    // Save the incoming message to message_history
+    const inboundMessage = await saveMessage({
       phone_number: from,
-      reason: text,
-      notes: `SMS conversation. Media attachments: ${media ? media.length : 0}`,
-      call_timestamp: new Date()
+      direction: 'inbound',
+      message_text: text,
+      media_urls: media ? media.map(m => m.url) : null,
+      status: 'received'
     });
+
+    // Save the outbound response to message_history
+    await saveMessage({
+      phone_number: from,
+      direction: 'outbound',
+      message_text: responseText,
+      status: 'sent'
+    });
+
+    // Determine urgency level based on keywords
+    let urgencyLevel = 'routine';
+    if (lowerText.includes('emergency') || lowerText.includes('no heat')) {
+      urgencyLevel = 'emergency';
+    } else if (lowerText.includes('urgent')) {
+      urgencyLevel = 'urgent';
+    }
+
+    // Create a service request from the SMS inquiry
+    await saveServiceRequest({
+      phone_number: from,
+      issue_description: text,
+      urgency_level: urgencyLevel,
+      additional_notes: `SMS inquiry. Media attachments: ${media ? media.length : 0}`,
+      contact_method: 'sms',
+      status: 'pending'
+    });
+
+    console.log('Saved SMS conversation and service request to Supabase');
 
   } catch (error) {
     console.error('Error handling incoming message:', error);
