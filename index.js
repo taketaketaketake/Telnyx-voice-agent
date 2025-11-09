@@ -256,7 +256,7 @@ function extractCallerInfo(conversationData) {
 async function handleIncomingMessage(payload) {
   const { from, to, text, media } = payload;
 
-  console.log(`Received message from ${from}: ${text}`);
+  console.log(`Received message from ${from.phone_number}: ${text}`);
 
   // Check if there are media attachments (MMS)
   if (media && media.length > 0) {
@@ -289,18 +289,18 @@ async function handleIncomingMessage(payload) {
 
     // Send SMS response using Telnyx
     await telnyx.messages.create({
-      from: to, // Our Telnyx number
-      to: from, // Customer's number
+      from: to.phone_number, // Our Telnyx number
+      to: from.phone_number, // Customer's number
       text: responseText,
       webhook_url: process.env.WEBHOOK_URL + '/webhook/messaging',
       use_profile_webhooks: false
     });
 
-    console.log('Sent SMS response to:', from);
+    console.log('Sent SMS response to:', from.phone_number);
 
     // Save the incoming message to message_history
     const inboundMessage = await saveMessage({
-      phone_number: from,
+      phone_number: from.phone_number,
       direction: 'inbound',
       message_text: text,
       media_urls: media ? media.map(m => m.url) : null,
@@ -309,7 +309,7 @@ async function handleIncomingMessage(payload) {
 
     // Save the outbound response to message_history
     await saveMessage({
-      phone_number: from,
+      phone_number: from.phone_number,
       direction: 'outbound',
       message_text: responseText,
       status: 'sent'
@@ -325,7 +325,7 @@ async function handleIncomingMessage(payload) {
 
     // Create a service request from the SMS inquiry
     await saveServiceRequest({
-      phone_number: from,
+      phone_number: from.phone_number,
       issue_description: text,
       urgency_level: urgencyLevel,
       additional_notes: `SMS inquiry. Media attachments: ${media ? media.length : 0}`,
@@ -341,8 +341,8 @@ async function handleIncomingMessage(payload) {
     // Send fallback response
     try {
       await telnyx.messages.create({
-        from: to,
-        to: from,
+        from: to.phone_number,
+        to: from.phone_number,
         text: "Hi! This is Charlotte from Fix My Furnace. I'm having trouble processing your message right now. Please call us at " + process.env.TELNYX_PHONE_NUMBER + " and I'll help you directly. Thanks!"
       });
     } catch (fallbackError) {
