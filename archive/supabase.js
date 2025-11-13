@@ -123,7 +123,7 @@ async function saveServiceRequest(serviceRequest) {
 
   try {
     const { data, error } = await supabase
-      .from('service_requests')
+      .from('service_requests_va')
       .insert([
         {
           phone_number: serviceRequest.phone_number,
@@ -170,7 +170,7 @@ async function saveMessage(messageInfo) {
 
   try {
     const { data, error } = await supabase
-      .from('message_history')
+      .from('message_history_va')
       .insert([
         {
           phone_number: messageInfo.phone_number,
@@ -208,7 +208,7 @@ async function getPendingRequests() {
 
   try {
     const { data, error } = await supabase
-      .from('pending_requests')
+      .from('pending_requests_va')
       .select('*');
 
     if (error) {

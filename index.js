@@ -2,7 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const telnyx = require('telnyx')(process.env.TELNYX_API_KEY);
-const { saveServiceRequest, saveMessage } = require('./supabase');
+const { saveVoiceLead } = require('./db/voice-leads');
+const { saveMessage } = require('./db/messaging');
+const { 
+  startCallLog, 
+  updateCallStatus, 
+  linkCallToServiceRequest 
+} = require('./call-logging');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -90,8 +96,8 @@ app.post('/webhook/ai-events', async (req, res) => {
 
       const args = event.function_arguments;
 
-      // Save to Charlotte's service_requests table
-      const savedRequest = await saveServiceRequest({
+      // Save to Charlotte's voice leads table
+      const savedLead = await saveVoiceLead({
         phone_number: event.from_number?.phone_number || event.from_number || null,
         customer_name: args.customer_name || null,
         email: args.email || null,
@@ -106,7 +112,7 @@ app.post('/webhook/ai-events', async (req, res) => {
         status: 'pending'
       });
 
-      console.log('✅ Saved service request to Supabase!', savedRequest);
+      console.log('✅ Saved voice lead to database!', savedLead);
     }
 
     // Log conversation completion
@@ -268,8 +274,8 @@ async function handleIncomingMessage(payload) {
       urgencyLevel = 'urgent';
     }
 
-    // Create a service request from the SMS inquiry
-    await saveServiceRequest({
+    // Create a voice lead from the SMS inquiry
+    await saveVoiceLead({
       phone_number: from.phone_number,
       issue_description: text,
       urgency_level: urgencyLevel,
@@ -278,7 +284,7 @@ async function handleIncomingMessage(payload) {
       status: 'pending'
     });
 
-    console.log('Saved SMS conversation and service request to Supabase');
+    console.log('Saved SMS conversation and voice lead to database');
 
   } catch (error) {
     console.error('Error handling incoming message:', error);
