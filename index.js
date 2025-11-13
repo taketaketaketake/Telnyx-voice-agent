@@ -7,7 +7,8 @@ const { saveMessage } = require('./db/messaging');
 const { 
   startCallLog, 
   updateCallStatus, 
-  linkCallToServiceRequest 
+  linkCallToServiceRequest,
+  updateCallTranscript 
 } = require('./call-logging');
 
 const app = express();
@@ -115,9 +116,27 @@ app.post('/webhook/ai-events', async (req, res) => {
       console.log('✅ Saved voice lead to database!', savedLead);
     }
 
-    // Log conversation completion
+    // Log conversation completion and capture transcript
     if (event.type === 'conversation.completed') {
       console.log('✅ Charlotte completed conversation for call:', event.call_id);
+      
+      // Try to capture transcript and summary if available in event data
+      if (event.call_id) {
+        try {
+          // Extract transcript from event data (if available)
+          const transcript = event.transcript || event.conversation_transcript || null;
+          const summary = event.summary || event.conversation_summary || null;
+          
+          if (transcript || summary) {
+            await updateCallTranscript(event.call_id, transcript, summary);
+            console.log('📝 Call transcript saved for:', event.call_id);
+          } else {
+            console.log('ℹ️ No transcript data available in conversation.completed event');
+          }
+        } catch (transcriptError) {
+          console.error('❌ Error saving call transcript:', transcriptError);
+        }
+      }
     }
 
     res.status(200).send('OK');
@@ -166,20 +185,35 @@ app.post('/webhook/messaging', async (req, res) => {
 async function handleCallInitiated(payload) {
   const { call_control_id, from, to } = payload;
 
-  console.log(`Incoming call from ${from.phone_number} to ${to.phone_number}`);
+  console.log(`📞 Incoming call from ${from.phone_number} to ${to.phone_number}`);
 
-  // Track basic call info
+  // Track basic call info in memory
   activeCalls.set(call_control_id, {
     from: from.phone_number,
     startTime: new Date()
   });
 
   try {
+    // Start call log in database
+    await startCallLog(call_control_id, from.phone_number);
+    console.log('📊 Call log started:', call_control_id);
+
     // Answer the call - Telnyx AI Assistant takes over immediately
     await telnyx.calls.answer(call_control_id);
-    console.log('Call answered, Charlotte AI engaged:', call_control_id);
+    console.log('✅ Call answered, Charlotte AI engaged:', call_control_id);
+    
+    // Update call status to answered
+    await updateCallStatus(call_control_id, 'answered');
   } catch (error) {
-    console.error('Error answering call:', error);
+    console.error('❌ Error handling call initiation:', error);
+    // Still try to answer even if logging fails
+    try {
+      await telnyx.calls.answer(call_control_id);
+    } catch (answerError) {
+      console.error('❌ Error answering call:', answerError);
+      // Update call status to failed if we have the call log
+      await updateCallStatus(call_control_id, 'failed').catch(console.error);
+    }
   }
 }
 
@@ -187,17 +221,37 @@ async function handleCallInitiated(payload) {
 async function handleCallAnswered(payload) {
   const { call_control_id } = payload;
 
-  console.log('Call answered, Charlotte AI handling conversation:', call_control_id);
-  // No local processing needed - Telnyx AI handles everything
+  console.log('📞 Call answered, Charlotte AI handling conversation:', call_control_id);
+  
+  try {
+    // Update call status to in_progress when AI starts conversation
+    await updateCallStatus(call_control_id, 'in_progress');
+    console.log('📊 Call status: in_progress');
+  } catch (error) {
+    console.error('❌ Error updating call status to in_progress:', error);
+  }
 }
 
 // Handle call hangup
 async function handleCallHangup(payload) {
-  const { call_control_id } = payload;
+  const { call_control_id, hangup_cause } = payload;
 
-  console.log('Call ended:', call_control_id);
+  console.log('📞 Call ended:', call_control_id, 'Cause:', hangup_cause);
 
-  // Clean up call data - Charlotte handles all data saving via AI function calls
+  try {
+    // Update call status based on hangup cause
+    let status = 'completed';
+    if (hangup_cause === 'NO_ANSWER') status = 'no_answer';
+    else if (hangup_cause === 'BUSY') status = 'busy';
+    else if (hangup_cause?.includes('FAIL') || hangup_cause?.includes('ERROR')) status = 'failed';
+    
+    await updateCallStatus(call_control_id, status);
+    console.log('📊 Call completed with status:', status);
+  } catch (error) {
+    console.error('❌ Error updating call completion status:', error);
+  }
+
+  // Clean up call data from memory
   activeCalls.delete(call_control_id);
 }
 
