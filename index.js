@@ -71,6 +71,14 @@ app.post('/webhook', async (req, res) => {
         await handleCallHangup(payload);
         break;
 
+      case 'call.recording.saved':
+        await handleRecordingSaved(payload);
+        break;
+
+      case 'call.recording.transcription.saved':
+        await handleTranscriptionSaved(payload);
+        break;
+
       // Removed unused handlers - Telnyx AI manages call flow
 
       default:
@@ -202,6 +210,17 @@ async function handleCallInitiated(payload) {
     await telnyx.calls.answer(call_control_id);
     console.log('✅ Call answered, Charlotte AI engaged:', call_control_id);
     
+    // Start recording with transcription for reliable data capture
+    await telnyx.calls.startRecording(call_control_id, {
+      channels: 'dual',
+      transcription: {
+        transcription_engine: 'telnyx', // More accurate than Google
+        language: 'en'
+      },
+      webhook_url: process.env.WEBHOOK_URL + '/webhook'
+    });
+    console.log('🎙️ Recording with transcription started:', call_control_id);
+    
     // Update call status to answered
     await updateCallStatus(call_control_id, 'answered');
   } catch (error) {
@@ -253,6 +272,77 @@ async function handleCallHangup(payload) {
 
   // Clean up call data from memory
   activeCalls.delete(call_control_id);
+}
+
+// Handle recording saved webhook
+async function handleRecordingSaved(payload) {
+  const { call_control_id, recording_url } = payload;
+  
+  console.log('🎙️ Recording saved for call:', call_control_id);
+  console.log('📁 Recording URL:', recording_url);
+  
+  try {
+    // Update call log with recording URL
+    await updateCallTranscript(call_control_id, null, `Recording: ${recording_url}`);
+  } catch (error) {
+    console.error('❌ Error saving recording URL:', error);
+  }
+}
+
+// Handle transcription saved webhook - THIS IS THE RELIABLE DATA CAPTURE
+async function handleTranscriptionSaved(payload) {
+  const { call_control_id, transcription_url, transcription_text } = payload;
+  
+  console.log('📝 Transcription saved for call:', call_control_id);
+  console.log('📄 Transcription text:', transcription_text);
+  
+  try {
+    // Save full transcript to database
+    await updateCallTranscript(call_control_id, transcription_text, 'Auto-captured transcript');
+    console.log('✅ Transcript saved to database');
+    
+    // Extract customer info from transcript using simple parsing
+    const customerData = extractCustomerFromTranscript(transcription_text);
+    
+    if (customerData.name || customerData.address || customerData.issue) {
+      // Save voice lead from transcript data
+      const lead = await saveVoiceLead({
+        phone_number: activeCalls.get(call_control_id)?.from || null,
+        customer_name: customerData.name,
+        address: customerData.address,
+        issue_description: customerData.issue,
+        urgency_level: customerData.urgency || 'routine',
+        additional_notes: `Extracted from transcript: ${transcription_text?.substring(0, 200)}...`,
+        contact_method: 'voice',
+        status: 'pending'
+      });
+      
+      console.log('✅ Voice lead created from transcript:', lead.id);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error processing transcription:', error);
+  }
+}
+
+// Simple transcript parsing to extract customer info
+function extractCustomerFromTranscript(transcript) {
+  if (!transcript) return {};
+  
+  const text = transcript.toLowerCase();
+  
+  // Basic extraction patterns - can be improved
+  const nameMatch = text.match(/(?:my name is|i'm|i am|this is)\s+([a-zA-Z\s]+)/);
+  const addressMatch = text.match(/(?:address is|live at|come to)\s+([^.!?]*)/);
+  const issueMatch = text.match(/(?:problem|issue|wrong|broken|not working)[^.!?]*/);
+  const urgencyMatch = text.match(/(?:emergency|urgent|no heat|freezing|cold)/);
+  
+  return {
+    name: nameMatch ? nameMatch[1].trim() : null,
+    address: addressMatch ? addressMatch[1].trim() : null,
+    issue: issueMatch ? issueMatch[0].trim() : null,
+    urgency: urgencyMatch ? 'urgent' : 'routine'
+  };
 }
 
 // Removed: extractCallerInfo - Charlotte AI handles data extraction via function calls
