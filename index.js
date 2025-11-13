@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Store active calls and collected data
+// Track basic call info (Telnyx handles conversation state)
 const activeCalls = new Map();
 
 // Root endpoint
@@ -28,11 +28,10 @@ app.get('/', (req, res) => {
   });
 });
 
+// Handle AI events that might come to root
 app.post('/', (req, res) => {
-  console.log('POST to root - redirecting to ai-events');
-  // Redirect AI assistant events that come to root
   if (req.body && req.body.data && req.body.data.event_type) {
-    console.log('AI Event to root:', JSON.stringify(req.body, null, 2));
+    console.log('AI Event received at root - configure webhook URL properly');
   }
   res.status(200).send('OK');
 });
@@ -65,9 +64,7 @@ app.post('/webhook', async (req, res) => {
         await handleCallHangup(payload);
         break;
 
-      case 'call.speak.ended':
-        console.log('Speak ended for call:', payload.call_control_id);
-        break;
+      // Removed unused handlers - Telnyx AI manages call flow
 
       default:
         console.log('Unhandled event type:', eventType);
@@ -95,7 +92,7 @@ app.post('/webhook/ai-events', async (req, res) => {
 
       // Save to Charlotte's service_requests table
       const savedRequest = await saveServiceRequest({
-        phone_number: event.from_number || null,
+        phone_number: event.from_number?.phone_number || event.from_number || null,
         customer_name: args.customer_name || null,
         email: args.email || null,
         address: args.address || null,
@@ -112,10 +109,9 @@ app.post('/webhook/ai-events', async (req, res) => {
       console.log('✅ Saved service request to Supabase!', savedRequest);
     }
 
-    // Also handle conversation completion for logging
+    // Log conversation completion
     if (event.type === 'conversation.completed') {
-      console.log('Conversation completed. Call ID:', event.call_id);
-      console.log('Full event data:', JSON.stringify(event, null, 2));
+      console.log('✅ Charlotte completed conversation for call:', event.call_id);
     }
 
     res.status(200).send('OK');
@@ -164,20 +160,18 @@ app.post('/webhook/messaging', async (req, res) => {
 async function handleCallInitiated(payload) {
   const { call_control_id, from, to } = payload;
 
-  console.log(`Incoming call from ${from} to ${to}`);
+  console.log(`Incoming call from ${from.phone_number} to ${to.phone_number}`);
 
-  // Initialize call data storage
+  // Track basic call info
   activeCalls.set(call_control_id, {
-    from,
-    to,
-    startTime: new Date(),
-    data: {}
+    from: from.phone_number,
+    startTime: new Date()
   });
 
   try {
-    // Answer the call
+    // Answer the call - Telnyx AI Assistant takes over immediately
     await telnyx.calls.answer(call_control_id);
-    console.log('Call answered:', call_control_id);
+    console.log('Call answered, Charlotte AI engaged:', call_control_id);
   } catch (error) {
     console.error('Error answering call:', error);
   }
@@ -187,16 +181,8 @@ async function handleCallInitiated(payload) {
 async function handleCallAnswered(payload) {
   const { call_control_id } = payload;
 
-  console.log('Call answered, AI Assistant should take over:', call_control_id);
-
-  // If Charlotte AI Assistant is configured on your Telnyx number,
-  // she will automatically start the conversation.
-  // No need to send speak commands - that interferes with the AI.
-
-  // The AI Assistant will handle:
-  // 1. Greeting the caller
-  // 2. Collecting information
-  // 3. Sending events to /webhook/ai-events when done
+  console.log('Call answered, Charlotte AI handling conversation:', call_control_id);
+  // No local processing needed - Telnyx AI handles everything
 }
 
 // Handle call hangup
@@ -205,52 +191,11 @@ async function handleCallHangup(payload) {
 
   console.log('Call ended:', call_control_id);
 
-  // Clean up call data
-  const callData = activeCalls.get(call_control_id);
-
-  if (callData && Object.keys(callData.data).length > 0) {
-    try {
-      // Save collected data to Charlotte's service_requests table
-      await saveServiceRequest({
-        phone_number: callData.from,
-        customer_name: callData.data.name || null,
-        email: callData.data.email || null,
-        address: callData.data.address || null,
-        issue_description: callData.data.reason || callData.data.issue_description || null,
-        additional_notes: callData.data.notes || null,
-        contact_method: 'voice',
-        call_start: callData.startTime,
-        call_end: new Date(),
-        status: 'pending'
-      });
-
-      console.log('Saved service request to Supabase');
-    } catch (error) {
-      console.error('Error saving service request:', error);
-    }
-  }
-
+  // Clean up call data - Charlotte handles all data saving via AI function calls
   activeCalls.delete(call_control_id);
 }
 
-// Extract caller information from conversation data
-function extractCallerInfo(conversationData) {
-  // This is a placeholder - you'll need to parse the actual conversation
-  // based on your AI assistant's response format
-  try {
-    return {
-      phone_number: conversationData.caller_phone,
-      name: conversationData.caller_name,
-      email: conversationData.caller_email,
-      reason: conversationData.call_reason,
-      notes: conversationData.additional_notes,
-      call_timestamp: new Date()
-    };
-  } catch (error) {
-    console.error('Error extracting caller info:', error);
-    return null;
-  }
-}
+// Removed: extractCallerInfo - Charlotte AI handles data extraction via function calls
 
 // Handle incoming SMS/MMS messages with Charlotte's personality
 async function handleIncomingMessage(payload) {
