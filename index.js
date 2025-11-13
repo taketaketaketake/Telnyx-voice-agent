@@ -1,365 +1,227 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const telnyx = require('telnyx')(process.env.TELNYX_API_KEY);
-const { saveVoiceLead } = require('./db/voice-leads');
-const { saveMessage } = require('./db/messaging');
-const { 
-  startCallLog, 
-  updateCallStatus, 
-  linkCallToServiceRequest,
-  updateCallTranscript 
-} = require('./call-logging');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Store webhook events for testing
+const receivedEvents = [];
 
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Track basic call info (Telnyx handles conversation state)
-const activeCalls = new Map();
+// Add request logging
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const event = {
+    timestamp,
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    body: req.body,
+    userAgent: req.headers['user-agent'],
+    ip: req.ip || req.connection.remoteAddress
+  };
+  
+  receivedEvents.push(event);
+  
+  // Keep only last 50 events
+  if (receivedEvents.length > 50) {
+    receivedEvents.shift();
+  }
+  
+  console.log(`\n🌐 ${timestamp} - ${req.method} ${req.url}`);
+  console.log('From IP:', req.ip || req.connection.remoteAddress);
+  console.log('User-Agent:', req.headers['user-agent']);
+  
+  if (Object.keys(req.body).length > 0) {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+  
+  next();
+});
 
-// Root endpoint
+// Root endpoint - health check
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Telnyx Voice Agent - Charlotte Edition',
+    message: 'Telnyx Webhook Tester - Ready to receive webhooks!',
     status: 'running',
+    timestamp: new Date().toISOString(),
+    baseUrl: req.protocol + '://' + req.get('host'),
     endpoints: {
       health: '/health',
-      webhook: '/webhook',
-      aiEvents: '/webhook/ai-events',
-      messaging: '/webhook/messaging'
+      webhook: '/webhook (for voice calls)',
+      aiEvents: '/webhook/ai-events (for AI assistant)',
+      messaging: '/webhook/messaging (for SMS/MMS)',
+      events: '/events (see received webhooks)'
     }
   });
 });
 
-// Handle AI events that might come to root
-app.post('/', (req, res) => {
-  if (req.body && req.body.data && req.body.data.event_type) {
-    console.log('AI Event received at root - configure webhook URL properly');
-  }
-  res.status(200).send('OK');
-});
-
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
-// Main webhook endpoint for Telnyx
-app.post('/webhook', async (req, res) => {
-  const event = req.body;
-
-  console.log('Received webhook:', JSON.stringify(event, null, 2));
-
-  try {
-    const eventType = event.data?.event_type;
-    const payload = event.data?.payload;
-
-    switch (eventType) {
-      case 'call.initiated':
-        await handleCallInitiated(payload);
-        break;
-
-      case 'call.answered':
-        await handleCallAnswered(payload);
-        break;
-
-      case 'call.hangup':
-        await handleCallHangup(payload);
-        break;
-
-      // Removed unused handlers - Telnyx AI manages call flow
-
-      default:
-        console.log('Unhandled event type:', eventType);
+  res.json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    env: {
+      PORT: process.env.PORT,
+      NODE_ENV: process.env.NODE_ENV,
+      webhookUrl: process.env.WEBHOOK_URL
     }
-
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling webhook:', error);
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-// Handle AI Assistant events
-app.post('/webhook/ai-events', async (req, res) => {
-  const event = req.body;
-
-  console.log('AI Event:', JSON.stringify(event, null, 2));
-
-  try {
-    // Handle function calls from Charlotte (when she collects service info)
-    if (event.type === 'function.called' && event.function_name === 'save_service_request') {
-      console.log('Charlotte called save_service_request with:', event.function_arguments);
-
-      const args = event.function_arguments;
-
-      // Save to Charlotte's voice leads table
-      const savedLead = await saveVoiceLead({
-        phone_number: event.from_number?.phone_number || event.from_number || null,
-        customer_name: args.customer_name || null,
-        email: args.email || null,
-        address: args.address || null,
-        home_size: args.home_size || null,
-        issue_description: args.issue_description || null,
-        urgency_level: args.urgency_level || 'routine',
-        last_service_date: args.last_service_date || null,
-        preferred_time: args.preferred_time || null,
-        additional_notes: args.additional_notes || null,
-        contact_method: 'voice',
-        status: 'pending'
-      });
-
-      console.log('✅ Saved voice lead to database!', savedLead);
-    }
-
-    // Log conversation completion and capture transcript
-    if (event.type === 'conversation.completed') {
-      console.log('✅ Charlotte completed conversation for call:', event.call_id);
-      
-      // Try to capture transcript and summary if available in event data
-      if (event.call_id) {
-        try {
-          // Extract transcript from event data (if available)
-          const transcript = event.transcript || event.conversation_transcript || null;
-          const summary = event.summary || event.conversation_summary || null;
-          
-          if (transcript || summary) {
-            await updateCallTranscript(event.call_id, transcript, summary);
-            console.log('📝 Call transcript saved for:', event.call_id);
-          } else {
-            console.log('ℹ️ No transcript data available in conversation.completed event');
-          }
-        } catch (transcriptError) {
-          console.error('❌ Error saving call transcript:', transcriptError);
-        }
-      }
-    }
-
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling AI event:', error);
-    console.error('Event was:', JSON.stringify(event, null, 2));
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-// Handle incoming SMS/MMS messages
-app.post('/webhook/messaging', async (req, res) => {
-  const event = req.body;
-
-  console.log('SMS/MMS Event:', JSON.stringify(event, null, 2));
-
-  try {
-    const eventType = event.data?.event_type;
-    const payload = event.data?.payload;
-
-    switch (eventType) {
-      case 'message.received':
-        await handleIncomingMessage(payload);
-        break;
-
-      case 'message.sent':
-        console.log('Message sent successfully:', payload.id);
-        break;
-
-      case 'message.failed':
-        console.error('Message failed:', payload);
-        break;
-
-      default:
-        console.log('Unhandled messaging event:', eventType);
-    }
-
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling messaging webhook:', error);
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-// Handle incoming call
-async function handleCallInitiated(payload) {
-  const { call_control_id, from, to } = payload;
-
-  console.log(`📞 Incoming call from ${from.phone_number} to ${to.phone_number}`);
-
-  // Track basic call info in memory
-  activeCalls.set(call_control_id, {
-    from: from.phone_number,
-    startTime: new Date()
   });
+});
 
-  try {
-    // Start call log in database
-    await startCallLog(call_control_id, from.phone_number);
-    console.log('📊 Call log started:', call_control_id);
-
-    // Answer the call - Telnyx AI Assistant takes over immediately
-    await telnyx.calls.answer(call_control_id);
-    console.log('✅ Call answered, Charlotte AI engaged:', call_control_id);
-    
-    // Update call status to answered
-    await updateCallStatus(call_control_id, 'answered');
-  } catch (error) {
-    console.error('❌ Error handling call initiation:', error);
-    // Still try to answer even if logging fails
-    try {
-      await telnyx.calls.answer(call_control_id);
-    } catch (answerError) {
-      console.error('❌ Error answering call:', answerError);
-      // Update call status to failed if we have the call log
-      await updateCallStatus(call_control_id, 'failed').catch(console.error);
+// View received events
+app.get('/events', (req, res) => {
+  res.json({
+    totalEvents: receivedEvents.length,
+    events: receivedEvents.slice(-10), // Show last 10 events
+    instructions: {
+      message: "Call your Telnyx number to see webhooks appear here",
+      phoneNumber: process.env.TELNYX_PHONE_NUMBER,
+      refreshUrl: req.protocol + '://' + req.get('host') + '/events'
     }
-  }
-}
+  });
+});
 
-// Handle call answered
-async function handleCallAnswered(payload) {
-  const { call_control_id } = payload;
+// Clear events log
+app.post('/events/clear', (req, res) => {
+  const clearedCount = receivedEvents.length;
+  receivedEvents.length = 0;
+  res.json({ 
+    message: 'Events cleared', 
+    clearedCount,
+    timestamp: new Date().toISOString() 
+  });
+});
 
-  console.log('📞 Call answered, Charlotte AI handling conversation:', call_control_id);
+// Voice call webhook
+app.post('/webhook', (req, res) => {
+  console.log('\n📞 VOICE WEBHOOK RECEIVED!');
+  console.log('Event Type:', req.body.data?.event_type);
+  console.log('Call Control ID:', req.body.data?.payload?.call_control_id);
+  console.log('From:', req.body.data?.payload?.from?.phone_number);
+  console.log('To:', req.body.data?.payload?.to?.phone_number);
   
-  try {
-    // Update call status to in_progress when AI starts conversation
-    await updateCallStatus(call_control_id, 'in_progress');
-    console.log('📊 Call status: in_progress');
-  } catch (error) {
-    console.error('❌ Error updating call status to in_progress:', error);
+  const eventType = req.body.data?.event_type;
+  const callId = req.body.data?.payload?.call_control_id;
+  
+  if (eventType === 'call.initiated') {
+    console.log('🎯 PERFECT! Voice webhook is working - call.initiated received');
   }
-}
+  
+  res.status(200).json({
+    message: 'Voice webhook received successfully',
+    eventType,
+    callId,
+    timestamp: new Date().toISOString(),
+    status: 'processed'
+  });
+});
 
-// Handle call hangup
-async function handleCallHangup(payload) {
-  const { call_control_id, hangup_cause } = payload;
-
-  console.log('📞 Call ended:', call_control_id, 'Cause:', hangup_cause);
-
-  try {
-    // Update call status based on hangup cause
-    let status = 'completed';
-    if (hangup_cause === 'NO_ANSWER') status = 'no_answer';
-    else if (hangup_cause === 'BUSY') status = 'busy';
-    else if (hangup_cause?.includes('FAIL') || hangup_cause?.includes('ERROR')) status = 'failed';
-    
-    await updateCallStatus(call_control_id, status);
-    console.log('📊 Call completed with status:', status);
-  } catch (error) {
-    console.error('❌ Error updating call completion status:', error);
+// AI Assistant webhook
+app.post('/webhook/ai-events', (req, res) => {
+  console.log('\n🤖 AI ASSISTANT WEBHOOK RECEIVED!');
+  console.log('Event Type:', req.body.type);
+  console.log('Call ID:', req.body.call_id);
+  console.log('Function Name:', req.body.function_name);
+  console.log('From Number:', req.body.from_number);
+  
+  const eventType = req.body.type;
+  const callId = req.body.call_id;
+  
+  if (eventType === 'function.called') {
+    console.log('🎯 PERFECT! AI webhook is working - function.called received');
   }
-
-  // Clean up call data from memory
-  activeCalls.delete(call_control_id);
-}
-
-// Removed: extractCallerInfo - Charlotte AI handles data extraction via function calls
-
-// Handle incoming SMS/MMS messages with Charlotte's personality
-async function handleIncomingMessage(payload) {
-  const { from, to, text, media } = payload;
-
-  console.log(`Received message from ${from.phone_number}: ${text}`);
-
-  // Check if there are media attachments (MMS)
-  if (media && media.length > 0) {
-    console.log(`Message includes ${media.length} media attachment(s):`, media);
+  
+  if (eventType === 'conversation.completed') {
+    console.log('🎯 PERFECT! AI webhook is working - conversation.completed received');
   }
+  
+  res.status(200).json({
+    message: 'AI webhook received successfully',
+    eventType,
+    callId,
+    timestamp: new Date().toISOString(),
+    status: 'processed'
+  });
+});
 
-  try {
-    // Charlotte's SMS response - warm and helpful
-    let responseText = '';
-
-    // Detect intent and respond accordingly
-    const lowerText = (text || '').toLowerCase();
-
-    if (lowerText.includes('emergency') || lowerText.includes('urgent') || lowerText.includes('no heat')) {
-      // Emergency response
-      responseText = "Hi! This is Charlotte from Fix My Furnace. I see you need urgent help. For fastest service, please call us at " + process.env.TELNYX_PHONE_NUMBER + " and I'll get you taken care of right away.";
-    } else if (lowerText.includes('schedule') || lowerText.includes('appointment') || lowerText.includes('book')) {
-      // Scheduling request
-      responseText = "Hi! I'm Charlotte with Fix My Furnace. I'd love to help schedule your service. Could you give me a call at " + process.env.TELNYX_PHONE_NUMBER + "? It'll just take a minute to get your appointment set up.";
-    } else if (lowerText.includes('price') || lowerText.includes('cost') || lowerText.includes('quote')) {
-      // Pricing inquiry
-      responseText = "Hi! Thanks for reaching out to Fix My Furnace. Pricing depends on your specific situation. Give me a call at " + process.env.TELNYX_PHONE_NUMBER + " and I can get you connected with one of our techs for an accurate estimate.";
-    } else if (lowerText.includes('hours') || lowerText.includes('open')) {
-      // Business hours
-      responseText = "Hi! Fix My Furnace is here to help. For service questions and scheduling, call me at " + process.env.TELNYX_PHONE_NUMBER + ". We offer emergency service 24/7!";
-    } else {
-      // General response
-      responseText = "Hi! This is Charlotte from Fix My Furnace. Thanks for your message! For the fastest help, please call me at " + process.env.TELNYX_PHONE_NUMBER + " and I'll personally take care of you.";
-    }
-
-    // Send SMS response using Telnyx
-    await telnyx.messages.create({
-      from: to.phone_number, // Our Telnyx number
-      to: from.phone_number, // Customer's number
-      text: responseText,
-      webhook_url: process.env.WEBHOOK_URL + '/webhook/messaging',
-      use_profile_webhooks: false
-    });
-
-    console.log('Sent SMS response to:', from.phone_number);
-
-    // Save the incoming message to message_history
-    const inboundMessage = await saveMessage({
-      phone_number: from.phone_number,
-      direction: 'inbound',
-      message_text: text,
-      media_urls: media ? media.map(m => m.url) : null,
-      status: 'received'
-    });
-
-    // Save the outbound response to message_history
-    await saveMessage({
-      phone_number: from.phone_number,
-      direction: 'outbound',
-      message_text: responseText,
-      status: 'sent'
-    });
-
-    // Determine urgency level based on keywords
-    let urgencyLevel = 'routine';
-    if (lowerText.includes('emergency') || lowerText.includes('no heat')) {
-      urgencyLevel = 'emergency';
-    } else if (lowerText.includes('urgent')) {
-      urgencyLevel = 'urgent';
-    }
-
-    // Create a voice lead from the SMS inquiry
-    await saveVoiceLead({
-      phone_number: from.phone_number,
-      issue_description: text,
-      urgency_level: urgencyLevel,
-      additional_notes: `SMS inquiry. Media attachments: ${media ? media.length : 0}`,
-      contact_method: 'sms',
-      status: 'pending'
-    });
-
-    console.log('Saved SMS conversation and voice lead to database');
-
-  } catch (error) {
-    console.error('Error handling incoming message:', error);
-
-    // Send fallback response
-    try {
-      await telnyx.messages.create({
-        from: to.phone_number,
-        to: from.phone_number,
-        text: "Hi! This is Charlotte from Fix My Furnace. I'm having trouble processing your message right now. Please call us at " + process.env.TELNYX_PHONE_NUMBER + " and I'll help you directly. Thanks!"
-      });
-    } catch (fallbackError) {
-      console.error('Error sending fallback message:', fallbackError);
-    }
+// SMS/MMS webhook
+app.post('/webhook/messaging', (req, res) => {
+  console.log('\n💬 MESSAGING WEBHOOK RECEIVED!');
+  console.log('Event Type:', req.body.data?.event_type);
+  console.log('From:', req.body.data?.payload?.from?.phone_number);
+  console.log('Text:', req.body.data?.payload?.text);
+  
+  const eventType = req.body.data?.event_type;
+  const from = req.body.data?.payload?.from?.phone_number;
+  
+  if (eventType === 'message.received') {
+    console.log('🎯 PERFECT! SMS webhook is working - message.received');
   }
-}
+  
+  res.status(200).json({
+    message: 'Messaging webhook received successfully',
+    eventType,
+    from,
+    timestamp: new Date().toISOString(),
+    status: 'processed'
+  });
+});
 
-// Start server
+// Catch-all for testing other endpoints
+app.all('*', (req, res) => {
+  console.log(`\n❓ UNKNOWN ENDPOINT: ${req.method} ${req.url}`);
+  console.log('This might be a misconfigured webhook URL');
+  
+  res.status(404).json({
+    error: 'Endpoint not found',
+    method: req.method,
+    url: req.url,
+    message: 'This endpoint is not configured for webhooks',
+    availableEndpoints: [
+      '/webhook (for voice calls)',
+      '/webhook/ai-events (for AI assistant)', 
+      '/webhook/messaging (for SMS/MMS)',
+      '/events (to view received webhooks)'
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Error handling
+app.use((error, req, res, next) => {
+  console.error('\n❌ SERVER ERROR:', error);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: error.message,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Start server with comprehensive logging
 app.listen(PORT, () => {
-  console.log(`Voice agent server running on port ${PORT}`);
-  console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
-  console.log(`AI Events URL: http://localhost:${PORT}/webhook/ai-events`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log('\n🚀 TELNYX WEBHOOK TESTER STARTED');
+  console.log('='.repeat(50));
+  console.log(`📡 Server running on port: ${PORT}`);
+  console.log(`🌐 Base URL: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}`);
+  console.log('\n📞 WEBHOOK ENDPOINTS:');
+  console.log(`   Voice calls: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}/webhook`);
+  console.log(`   AI assistant: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}/webhook/ai-events`);
+  console.log(`   SMS/MMS: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}/webhook/messaging`);
+  console.log('\n🔍 TESTING ENDPOINTS:');
+  console.log(`   Health check: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}/health`);
+  console.log(`   View events: ${process.env.WEBHOOK_URL || 'http://localhost:' + PORT}/events`);
+  console.log('\n📱 TEST INSTRUCTIONS:');
+  console.log(`   1. Call your Telnyx number: ${process.env.TELNYX_PHONE_NUMBER}`);
+  console.log(`   2. Watch console logs for webhook activity`);
+  console.log(`   3. Visit /events endpoint to see webhook history`);
+  console.log(`   4. Check Telnyx Mission Control webhook settings if no activity`);
+  console.log('\n' + '='.repeat(50));
+  console.log('🎯 Ready to test webhooks! Make a call now...\n');
 });
