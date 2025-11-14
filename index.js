@@ -446,10 +446,199 @@ async function handleIncomingMessage(payload) {
   }
 }
 
+// ============================================================================
+// MCP (Model Context Protocol) Endpoints for Telnyx AI Assistant
+// ============================================================================
+
+// MCP Server Info
+app.get('/mcp', (req, res) => {
+  res.json({
+    name: 'Telnyx Voice Agent MCP Server',
+    version: '1.0.0',
+    protocol: 'mcp',
+    capabilities: {
+      resources: true,
+      tools: true,
+      logging: true
+    },
+    description: 'MCP server for Telnyx Voice Agent Supabase database access'
+  });
+});
+
+// MCP Resources - Available database tables
+app.get('/mcp/resources', async (req, res) => {
+  try {
+    const resources = [
+      {
+        uri: 'supabase://service_requests_va',
+        name: 'Service Requests',
+        description: 'Voice agent service requests and customer data',
+        mimeType: 'application/json'
+      },
+      {
+        uri: 'supabase://call_log_va', 
+        name: 'Call Logs',
+        description: 'Voice call logs and transcripts',
+        mimeType: 'application/json'
+      },
+      {
+        uri: 'supabase://message_history_va',
+        name: 'Message History',
+        description: 'SMS/MMS message history',
+        mimeType: 'application/json'
+      }
+    ];
+    
+    res.json({ resources });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// MCP Tools - Available database operations
+app.get('/mcp/tools', (req, res) => {
+  const tools = [
+    {
+      name: 'save_call_data',
+      description: 'Save customer call data to database',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phone_number: { type: 'string', required: true },
+          customer_name: { type: 'string' },
+          address: { type: 'string' },
+          issue_description: { type: 'string' },
+          urgency_level: { type: 'string', enum: ['emergency', 'urgent', 'routine'] },
+          additional_notes: { type: 'string' }
+        },
+        required: ['phone_number']
+      }
+    },
+    {
+      name: 'query_customer_history',
+      description: 'Get customer service history by phone number',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phone_number: { type: 'string', required: true },
+          limit: { type: 'number', default: 10 }
+        },
+        required: ['phone_number']
+      }
+    }
+  ];
+  
+  res.json({ tools });
+});
+
+// MCP Tool Execution
+app.post('/mcp/tools/call', async (req, res) => {
+  const { name, arguments: args } = req.body;
+  
+  try {
+    let result;
+    
+    switch (name) {
+      case 'save_call_data':
+        result = await mcpSaveCallData(args);
+        break;
+        
+      case 'query_customer_history':
+        result = await mcpQueryCustomerHistory(args);
+        break;
+        
+      default:
+        throw new Error(`Unknown MCP tool: ${name}`);
+    }
+    
+    res.json({ 
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2)
+        }
+      ]
+    });
+    
+  } catch (error) {
+    console.error('MCP Tool Error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      isError: true 
+    });
+  }
+});
+
+// MCP Tool Implementation Functions
+async function mcpSaveCallData(args) {
+  try {
+    // Save voice lead
+    const lead = await saveVoiceLead({
+      phone_number: args.phone_number,
+      customer_name: args.customer_name || null,
+      address: args.address || null,
+      issue_description: args.issue_description || null,
+      urgency_level: args.urgency_level || 'routine',
+      additional_notes: args.additional_notes || null,
+      contact_method: 'voice',
+      status: 'pending'
+    });
+    
+    return {
+      success: true,
+      message: 'Customer call data saved successfully',
+      service_request: lead
+    };
+    
+  } catch (error) {
+    throw new Error(`Failed to save call data: ${error.message}`);
+  }
+}
+
+async function mcpQueryCustomerHistory(args) {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    
+    // Get service requests for this phone number
+    const { data: requests, error: requestError } = await supabase
+      .from('service_requests_va')
+      .select('*')
+      .eq('phone_number', args.phone_number)
+      .order('created_at', { ascending: false })
+      .limit(args.limit || 10);
+      
+    if (requestError) throw requestError;
+    
+    // Get call logs for this phone number
+    const { data: calls, error: callError } = await supabase
+      .from('call_log_va')
+      .select('*')
+      .eq('phone_number', args.phone_number)
+      .order('created_at', { ascending: false })
+      .limit(5);
+      
+    if (callError) throw callError;
+    
+    return {
+      phone_number: args.phone_number,
+      service_requests: requests || [],
+      recent_calls: calls || [],
+      total_requests: requests?.length || 0,
+      total_calls: calls?.length || 0
+    };
+    
+  } catch (error) {
+    throw new Error(`Failed to query customer history: ${error.message}`);
+  }
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Voice agent server running on port ${PORT}`);
   console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
   console.log(`AI Events URL: http://localhost:${PORT}/webhook/ai-events`);
   console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`MCP Server: http://localhost:${PORT}/mcp`);
+  console.log(`MCP Tools: http://localhost:${PORT}/mcp/tools`);
 });
