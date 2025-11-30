@@ -10,13 +10,16 @@ const { supabase } = require('./client');
  * @returns {Promise<Object>} Result of the database operation
  */
 async function saveVoiceLead(voiceLead) {
+  console.log('Attempting to save voice lead:', voiceLead);
+
   if (!supabase) {
+    console.error('Supabase client not initialized. Please configure SUPABASE_URL and SUPABASE_ANON_KEY');
     throw new Error('Supabase client not initialized. Please configure SUPABASE_URL and SUPABASE_ANON_KEY');
   }
 
   try {
     const { data, error } = await supabase
-      .from('service_requests_va') // TODO: rename table to voice_leads_va
+      .from('service_requests_va')
       .insert([
         {
           phone_number: voiceLead.phone_number,
@@ -46,7 +49,7 @@ async function saveVoiceLead(voiceLead) {
     console.log('✅ Voice lead saved to database:', data);
     return data;
   } catch (error) {
-    console.error('Error saving voice lead:', error);
+    console.error('Error in saveVoiceLead function:', error);
     throw error;
   }
 }
