@@ -218,9 +218,15 @@ async function handleCallInitiated(payload) {
     await startCallLog(call_control_id, from.phone_number);
     console.log('📊 Call log started:', call_control_id);
 
-    // Answer the call - Telnyx AI Assistant takes over immediately
+    // Answer the call
     await telnyx.calls.answer(call_control_id);
-    console.log('✅ Call answered, Charlotte AI engaged:', call_control_id);
+    console.log('✅ Call answered:', call_control_id);
+    
+    // Start AI Assistant conversation
+    await telnyx.calls.startAIAssistant(call_control_id, {
+      assistant_id: process.env.CHARLOTTE_AI_ASSISTANT_ID
+    });
+    console.log('🤖 Charlotte AI Assistant started:', call_control_id);
     
     // Start recording with transcription for reliable data capture
     await telnyx.calls.startRecording(call_control_id, {
@@ -240,8 +246,11 @@ async function handleCallInitiated(payload) {
     // Still try to answer even if logging fails
     try {
       await telnyx.calls.answer(call_control_id);
+      await telnyx.calls.startAIAssistant(call_control_id, {
+        assistant_id: process.env.CHARLOTTE_AI_ASSISTANT_ID
+      });
     } catch (answerError) {
-      console.error('❌ Error answering call:', answerError);
+      console.error('❌ Error answering call or starting AI:', answerError);
       // Update call status to failed if we have the call log
       await updateCallStatus(call_control_id, 'failed').catch(console.error);
     }
