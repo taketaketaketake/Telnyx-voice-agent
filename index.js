@@ -11,12 +11,18 @@ const {
   updateCallTranscript 
 } = require('./call-logging');
 
+// Import dashboard routes
+const dashboardRoutes = require('./routes/dashboard');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Use dashboard routes
+app.use('/', dashboardRoutes);
 
 // Track basic call info (Telnyx handles conversation state)
 const activeCalls = new Map();
