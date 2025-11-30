@@ -206,6 +206,7 @@ async function handleCallInitiated(payload) {
   const { call_control_id, from, to } = payload;
 
   console.log(`📞 Incoming call from ${from.phone_number} to ${to.phone_number}`);
+  console.log('🔍 Assistant ID from env:', process.env.CHARLOTTE_AI_ASSISTANT_ID);
 
   // Track basic call info in memory
   activeCalls.set(call_control_id, {
@@ -214,25 +215,25 @@ async function handleCallInitiated(payload) {
   });
 
   try {
-    // Start call log in database
-    await startCallLog(call_control_id, from.phone_number);
-    console.log('📊 Call log started:', call_control_id);
-
-    // Answer the call
+    console.log('🎯 Step 1: Answering call...');
     await telnyx.calls.answer(call_control_id);
-    console.log('✅ Call answered:', call_control_id);
+    console.log('✅ Call answered successfully');
     
-    // Start AI Assistant conversation
-    await telnyx.calls.startAIAssistant(call_control_id, {
+    console.log('🎯 Step 2: Starting AI Assistant...');
+    const aiResult = await telnyx.calls.startAIAssistant(call_control_id, {
       assistant_id: process.env.CHARLOTTE_AI_ASSISTANT_ID
     });
-    console.log('🤖 Charlotte AI Assistant started:', call_control_id);
+    console.log('🤖 AI Assistant start result:', JSON.stringify(aiResult, null, 2));
+    
+    // Start call log in database (after core functionality works)
+    await startCallLog(call_control_id, from.phone_number);
+    console.log('📊 Call log started:', call_control_id);
     
     // Start recording with transcription for reliable data capture
     await telnyx.calls.startRecording(call_control_id, {
       channels: 'dual',
       transcription: {
-        transcription_engine: 'telnyx', // More accurate than Google
+        transcription_engine: 'telnyx',
         language: 'en'
       },
       webhook_url: process.env.WEBHOOK_URL + '/webhook'
@@ -242,17 +243,18 @@ async function handleCallInitiated(payload) {
     // Update call status to answered
     await updateCallStatus(call_control_id, 'answered');
   } catch (error) {
-    console.error('❌ Error handling call initiation:', error);
-    // Still try to answer even if logging fails
+    console.error('❌ Detailed error:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    
+    // Minimal fallback - just answer the call
     try {
       await telnyx.calls.answer(call_control_id);
-      await telnyx.calls.startAIAssistant(call_control_id, {
-        assistant_id: process.env.CHARLOTTE_AI_ASSISTANT_ID
-      });
+      console.log('📞 Fallback: Call answered without AI');
     } catch (answerError) {
-      console.error('❌ Error answering call or starting AI:', answerError);
-      // Update call status to failed if we have the call log
-      await updateCallStatus(call_control_id, 'failed').catch(console.error);
+      console.error('❌ Even basic answer failed:', answerError);
     }
   }
 }
