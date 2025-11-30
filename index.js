@@ -217,13 +217,7 @@ async function handleCallInitiated(payload) {
   try {
     console.log('🎯 Step 1: Answering call...');
     await telnyx.calls.answer(call_control_id);
-    console.log('✅ Call answered successfully');
-    
-    console.log('🎯 Step 2: Starting AI Assistant...');
-    const aiResult = await telnyx.calls.startAIAssistant(call_control_id, {
-      assistant_id: process.env.CHARLOTTE_AI_ASSISTANT_ID
-    });
-    console.log('🤖 AI Assistant start result:', JSON.stringify(aiResult, null, 2));
+    console.log('✅ Call answered successfully - AI should auto-start from phone number config');
     
     // Start call log in database (after core functionality works)
     await startCallLog(call_control_id, from.phone_number);
@@ -252,7 +246,7 @@ async function handleCallInitiated(payload) {
     // Minimal fallback - just answer the call
     try {
       await telnyx.calls.answer(call_control_id);
-      console.log('📞 Fallback: Call answered without AI');
+      console.log('📞 Fallback: Call answered - check Telnyx phone number AI config');
     } catch (answerError) {
       console.error('❌ Even basic answer failed:', answerError);
     }
