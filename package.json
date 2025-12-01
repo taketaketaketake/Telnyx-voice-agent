@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Low latency voice agent using Telnyx and Deepgram Flux",
   "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
