@@ -264,9 +264,24 @@ async function handleCallAnswered(payload) {
     }
 
     console.log('🤖 Starting AI assistant:', assistantId);
-    await telnyx.calls.start_ai_assistant(call_control_id, {
-      assistant_id: assistantId
+    
+    // SDK doesn't have start_ai_assistant method, use HTTP API
+    const response = await fetch(`https://api.telnyx.com/v2/calls/${call_control_id}/actions/start_ai_assistant`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        assistant_id: assistantId
+      })
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to start AI assistant: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+    
     console.log('✅ AI assistant started successfully');
 
     // Update call status to in_progress when AI starts conversation
