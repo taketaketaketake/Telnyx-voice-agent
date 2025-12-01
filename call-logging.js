@@ -24,25 +24,32 @@ const supabase = supabaseUrl && supabaseKey
  */
 async function startCallLog(telnyxCallId, phoneNumber) {
   if (!supabase) {
-    throw new Error('Supabase client not initialized');
+    console.warn('Supabase not available - skipping call log');
+    return null;
   }
 
   try {
+    // Insert directly into call_log_va table instead of using stored procedure
     const { data, error } = await supabase
-      .rpc('start_call_log', { 
-        p_telnyx_call_id: telnyxCallId, 
-        p_phone_number: phoneNumber 
-      });
+      .from('call_log_va')
+      .insert([{
+        telnyx_call_id: telnyxCallId,
+        phone_number: phoneNumber,
+        status: 'initiated',
+        created_at: new Date().toISOString()
+      }])
+      .select();
 
     if (error) {
-      throw error;
+      console.warn('Call log insert failed:', error.message);
+      return null; // Don't throw error, just log warning
     }
 
     console.log('📞 Call log started:', telnyxCallId);
-    return data;
+    return data?.[0];
   } catch (error) {
-    console.error('Error starting call log:', error);
-    throw error;
+    console.warn('Call logging skipped due to error:', error.message);
+    return null; // Don't throw error, just return null
   }
 }
 
@@ -54,25 +61,31 @@ async function startCallLog(telnyxCallId, phoneNumber) {
  */
 async function updateCallStatus(telnyxCallId, status) {
   if (!supabase) {
-    throw new Error('Supabase client not initialized');
+    console.warn('Supabase not available - skipping status update');
+    return null;
   }
 
   try {
+    // Update directly in call_log_va table
     const { data, error } = await supabase
-      .rpc('update_call_status', { 
-        p_telnyx_call_id: telnyxCallId, 
-        p_status: status 
-      });
+      .from('call_log_va')
+      .update({ 
+        status: status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('telnyx_call_id', telnyxCallId)
+      .select();
 
     if (error) {
-      throw error;
+      console.warn('Call status update failed:', error.message);
+      return null;
     }
 
     console.log('📞 Call status updated:', telnyxCallId, '→', status);
-    return data;
+    return data?.[0];
   } catch (error) {
-    console.error('Error updating call status:', error);
-    throw error;
+    console.warn('Call status update skipped:', error.message);
+    return null;
   }
 }
 
