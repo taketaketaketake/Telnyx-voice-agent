@@ -266,7 +266,7 @@ async function handleCallAnswered(payload) {
     console.log('🤖 Starting AI assistant:', assistantId);
     
     // SDK doesn't have start_ai_assistant method, use HTTP API
-    const response = await fetch(`https://api.telnyx.com/v2/calls/${call_control_id}/actions/start_ai_assistant`, {
+    const response = await fetch(`https://api.telnyx.com/v2/calls/${call_control_id}/actions/ai_assistant_start`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
