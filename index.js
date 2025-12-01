@@ -256,11 +256,24 @@ async function handleCallAnswered(payload) {
   console.log('📞 Call answered, Charlotte AI handling conversation:', call_control_id);
   
   try {
+    // Start the AI assistant
+    const assistantId = process.env.CHARLOTTE_AI_ASSISTANT_ID;
+    if (!assistantId) {
+      console.error('❌ CHARLOTTE_AI_ASSISTANT_ID not configured');
+      return;
+    }
+
+    console.log('🤖 Starting AI assistant:', assistantId);
+    await telnyx.calls.startAIAssistant(call_control_id, {
+      assistant_id: assistantId
+    });
+    console.log('✅ AI assistant started successfully');
+
     // Update call status to in_progress when AI starts conversation
     await updateCallStatus(call_control_id, 'in_progress');
     console.log('📊 Call status: in_progress');
   } catch (error) {
-    console.error('❌ Error updating call status to in_progress:', error);
+    console.error('❌ Error starting AI assistant or updating call status:', error);
   }
 }
 
