@@ -227,13 +227,8 @@ async function handleCallInitiated(payload) {
     await startCallLog(call_control_id, callerNumber);
     console.log('📊 Call log started:', call_control_id);
     
-    // Start recording with transcription for reliable data capture
-    await telnyx.calls.recordStart(call_control_id, {
-      channels: 'dual',
-      transcription_engine: 'telnyx',
-      transcription_language: 'en'
-    });
-    console.log('🎙️ Recording with transcription started:', call_control_id);
+    // Skip recording for now - focus on AI functionality
+    console.log('🎙️ Recording skipped - focusing on AI assistant');
     
     // Update call status to answered
     await updateCallStatus(call_control_id, 'answered');
