@@ -205,12 +205,16 @@ app.post('/webhook/messaging', async (req, res) => {
 async function handleCallInitiated(payload) {
   const { call_control_id, from, to } = payload;
 
-  console.log(`📞 Incoming call from ${from.phone_number} to ${to.phone_number}`);
+  // Extract phone number correctly from webhook payload
+  const callerNumber = from?.phone_number || from;
+  const toNumber = to?.phone_number || to;
+
+  console.log(`📞 Incoming call from ${callerNumber} to ${toNumber}`);
   console.log('🔍 Assistant ID from env:', process.env.CHARLOTTE_AI_ASSISTANT_ID);
 
   // Track basic call info in memory
   activeCalls.set(call_control_id, {
-    from: from.phone_number,
+    from: callerNumber,
     startTime: new Date()
   });
 
@@ -220,17 +224,14 @@ async function handleCallInitiated(payload) {
     console.log('✅ Call answered successfully - AI should auto-start from phone number config');
     
     // Start call log in database (after core functionality works)
-    await startCallLog(call_control_id, from.phone_number);
+    await startCallLog(call_control_id, callerNumber);
     console.log('📊 Call log started:', call_control_id);
     
     // Start recording with transcription for reliable data capture
-    await telnyx.calls.startRecording(call_control_id, {
+    await telnyx.calls.recordStart(call_control_id, {
       channels: 'dual',
-      transcription: {
-        transcription_engine: 'telnyx',
-        language: 'en'
-      },
-      webhook_url: process.env.WEBHOOK_URL + '/webhook'
+      transcription_engine: 'telnyx',
+      transcription_language: 'en'
     });
     console.log('🎙️ Recording with transcription started:', call_control_id);
     
