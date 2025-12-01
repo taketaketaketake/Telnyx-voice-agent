@@ -264,7 +264,7 @@ async function handleCallAnswered(payload) {
     }
 
     console.log('🤖 Starting AI assistant:', assistantId);
-    await telnyx.calls.startAIAssistant(call_control_id, {
+    await telnyx.calls.startAiAssistant(call_control_id, {
       assistant_id: assistantId
     });
     console.log('✅ AI assistant started successfully');
